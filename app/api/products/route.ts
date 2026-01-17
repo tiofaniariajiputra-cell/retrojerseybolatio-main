@@ -1,0 +1,46 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@/backend/utils/prisma'
+import { Prisma } from '@prisma/client'
+
+export async function GET(request: NextRequest) {
+  try {
+    const url = new URL(request.url)
+    const search = url.searchParams.get('search') || undefined
+    const category = url.searchParams.get('category') || undefined
+
+    // build a dynamic where object for Prisma query
+    const where: Prisma.ProductWhereInput = { isAvailable: true }
+
+    if (category) {
+      where.category = { slug: category }
+    }
+
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { club: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+      ]
+    }
+
+    const products = await prisma.product.findMany({
+      where,
+      include: {
+        category: true,
+        images: { where: { isPrimary: true }, take: 1 },
+        sizes: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    return NextResponse.json({ products })
+  } catch (error: unknown) {
+    console.error('Get products error:', error)
+    const err = error as Error & { name?: string }
+    // If DB is unreachable during development, return empty list instead of 500
+    if (err?.message?.includes("Can't reach database server") || err?.name === 'PrismaClientInitializationError') {
+      return NextResponse.json({ products: [] })
+    }
+    return NextResponse.json({ error: err?.message ?? 'Unknown error' }, { status: 500 })
+  }
+}
